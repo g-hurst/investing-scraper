@@ -1,0 +1,15 @@
+/.env
+/data/auth/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.venv
+
+# playwright
+.playwright-cli
+
+# claude temp
+/.remember/
