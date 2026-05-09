@@ -53,7 +53,7 @@ def _row_to_summary(row) -> ArticleSummary:
     )
 
 
-@router.get("", response_model=ArticleList, operation_id="list_articles")
+@router.get("", response_model=ArticleList, operation_id="stocknews_list_articles")
 def list_articles(
     source: str | None = Query(None),
     ticker: str | None = Query(None),
@@ -85,7 +85,7 @@ def list_articles(
     return ArticleList(total=total, items=[_row_to_summary(r) for r in rows])
 
 
-@router.get("/{article_id}", response_model=ArticleDetail, operation_id="get_article")
+@router.get("/{article_id}", response_model=ArticleDetail, operation_id="stocknews_get_article")
 def get_article(article_id: int):
     conn = get_conn()
     try:

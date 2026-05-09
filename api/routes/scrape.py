@@ -21,7 +21,7 @@ def _run_scrape() -> None:
             _scrape_running = False
 
 
-@router.post("", status_code=202, response_model=ScrapeStatus, operation_id="trigger_scrape")
+@router.post("", status_code=202, response_model=ScrapeStatus, operation_id="stocknews_trigger_scrape")
 async def trigger_scrape(background_tasks: BackgroundTasks):
     global _scrape_running
     with _lock:
@@ -35,7 +35,7 @@ async def trigger_scrape(background_tasks: BackgroundTasks):
     return ScrapeStatus(status="started", message="Scrape started in background")
 
 
-@router.get("/state", response_model=list[ScrapeState], operation_id="get_scrape_state")
+@router.get("/state", response_model=list[ScrapeState], operation_id="stocknews_get_scrape_state")
 def get_scrape_state():
     conn = get_conn()
     try:
