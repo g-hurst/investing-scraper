@@ -1,0 +1,11 @@
+.venv/
+.git/
+.remember/
+.playwright-cli/
+data/auth/
+data/articles/
+data/state.json
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo

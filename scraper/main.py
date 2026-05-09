@@ -40,10 +40,10 @@ def run() -> None:
         for url in new_urls:
             try:
                 article = source.scrape_article(url)
-                path = save_article(source.source_id, article)
+                article_id = save_article(source.source_id, article)
                 state["scraped_urls"].add(url)
                 scraped += 1
-                print(f"  Saved: {path.name}")
+                print(f"  Saved: [{article_id}] {article.get('title', url)}")
             except Exception as e:
                 print(f"  Skipped {url}: {e}")
             time.sleep(2)
