@@ -31,22 +31,5 @@ services:
       postgres:
         condition: service_healthy
 
-  mcp:
-    image: investing-scraper
-    build:
-      context: .
-      dockerfile: Dockerfile
-    shm_size: '256mb'
-    command: ["python", "api/mcp_server.py"]
-    ports:
-      - "8001:8001"
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://scraper:scraper@postgres:5432/investing_scraper
-    depends_on:
-      postgres:
-        condition: service_healthy
-
 volumes:
   postgres_data:

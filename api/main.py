@@ -3,11 +3,27 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
+from fastmcp import FastMCP
 
 from api.routes.articles import router as articles_router
 from api.routes.scrape import router as scrape_router
+from api.routes.tickers import router as tickers_router
 
-app = FastAPI(title="Investing Scraper API")
+api = FastAPI(title="Investing Scraper API")
 
-app.include_router(scrape_router, prefix="/scrape", tags=["scrape"])
-app.include_router(articles_router, prefix="/articles", tags=["articles"])
+api.include_router(scrape_router, prefix="/scrape", tags=["scrape"])
+api.include_router(articles_router, prefix="/articles", tags=["articles"])
+api.include_router(tickers_router, prefix="/tickers", tags=["tickers"])
+
+
+mcp = FastMCP.from_fastapi(app=api, name="Investing Scraper MCP")
+mcp_app = mcp.http_app(path="/mcp")
+
+app = FastAPI(
+    title="Investing Scraper",
+    routes=[
+        *mcp_app.routes,
+        *api.routes,
+    ],
+    lifespan=mcp_app.lifespan,
+)

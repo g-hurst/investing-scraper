@@ -11,6 +11,12 @@ class ScrapeStatus(BaseModel):
 class ScrapeState(BaseModel):
     source_id: str
     last_scrape: date
+    article_count: int
+
+
+class TickerSummary(BaseModel):
+    ticker: str
+    article_count: int
 
 
 class ArticleSummary(BaseModel):
