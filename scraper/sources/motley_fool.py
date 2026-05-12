@@ -9,7 +9,7 @@ from scraper.playwright_utils import pw
 from scraper.sources.base import BaseSource
 
 _AUTH_STATE = str(Path(__file__).parent.parent.parent / "data" / "auth" / "motley_fool.json")
-_LISTING_URL = "https://www.fool.com/premium/news-and-analysis"
+_LISTING_URL = "https://www.fool.com/premium/news-and-analysis/articles"
 _LOGIN_ENTRY = "https://www.fool.com/premium"
 
 # Matches "(NASDAQ: KRYS)" or "(NYSE: BIP)" style ticker markup
@@ -74,21 +74,27 @@ class MotleyFool(BaseSource):
         all_urls: list[str] = []
         stop = False
         max_show_more = 20
+        current_day: date | None = None
 
-        # JS: wait for article cards to render (React SPA), then extract href + date from URL.
-        # Returns the array directly (no JSON.stringify) so --raw gives parseable JSON.
+        # JS: wait for the "Show More" button (signals full list render), then extract all
+        # premium article links that contain a YYYY/MM/DD date segment.
+        # Covers both /coverage/ and /earnings/call-transcripts/ URL shapes.
         _extract_js = (
             "async page => {\n"
             "  try {\n"
-            "    await page.waitForSelector('a[href*=\"/coverage/2\"]', { timeout: 15000 });\n"
+            "    await page.waitForFunction(\n"
+            "      () => [...document.querySelectorAll('button')]"
+            ".some(b => /show more/i.test(b.innerText)),\n"
+            "      { timeout: 15000 }\n"
+            "    );\n"
             "  } catch(e) {}\n"
             "  return await page.evaluate(() => {\n"
             "    const seen = new Set();\n"
-            "    return [...document.querySelectorAll('a[href*=\"/coverage/\"]')]\n"
+            "    return [...document.querySelectorAll('a[href*=\"/premium/\"]')]\n"
             "      .filter(a => !a.href.includes('#') && a.innerText.trim().length > 3)\n"
             "      .map(a => {\n"
-            "        const m = a.href.match(/\\/coverage\\/(?:updates\\/)?([0-9]{4}\\/[0-9]{2}\\/[0-9]{2})\\//);\n"
-            "        return { href: a.href, date: m ? m[1].replace(/\\//g, '-') : '' };\n"
+            "        const m = a.href.match(/\\/([0-9]{4})\\/([0-9]{2})\\/([0-9]{2})\\//);\n"
+            "        return { href: a.href, date: m ? `${m[1]}-${m[2]}-${m[3]}` : '' };\n"
             "      })\n"
             "      .filter(x => x.date && !seen.has(x.href) && seen.add(x.href));\n"
             "  });\n"
@@ -114,7 +120,9 @@ class MotleyFool(BaseSource):
                     item_date = date.fromisoformat(item_date_str)
                 except ValueError:
                     continue
-                if item_date < since_date:
+                if current_day is None:
+                    current_day = item_date
+                if item_date < current_day:
                     stop = True
                     break
                 if href not in all_urls:
@@ -123,20 +131,24 @@ class MotleyFool(BaseSource):
             if stop:
                 break
 
-            # Click "Show More" to load older articles
+            # Click "Show More" to load the next batch of articles
             has_more = pw(
                 "run-code",
                 "async page => {\n"
-                "  const btn = [...document.querySelectorAll('button')]"
-                ".find(b => /show more/i.test(b.innerText));\n"
-                "  if (!btn) return 'false';\n"
-                "  btn.click();\n"
-                "  return 'true';\n"
+                "  const btn = page.getByRole('button', { name: /show more/i });\n"
+                "  try {\n"
+                "    await btn.waitFor({ timeout: 5000 });\n"
+                "    await btn.scrollIntoViewIfNeeded();\n"
+                "    await btn.click();\n"
+                "    await page.waitForTimeout(2000);\n"
+                "    return 'true';\n"
+                "  } catch(e) {\n"
+                "    return 'false';\n"
+                "  }\n"
                 "}",
             )
             if "true" not in has_more:
                 break
-            time.sleep(2)
 
         return all_urls
 
