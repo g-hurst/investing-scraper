@@ -74,7 +74,6 @@ class MotleyFool(BaseSource):
         all_urls: list[str] = []
         stop = False
         max_show_more = 20
-        current_day: date | None = None
 
         # JS: wait for the "Show More" button (signals full list render), then extract all
         # premium article links that contain a YYYY/MM/DD date segment.
@@ -120,9 +119,9 @@ class MotleyFool(BaseSource):
                     item_date = date.fromisoformat(item_date_str)
                 except ValueError:
                     continue
-                if current_day is None:
-                    current_day = item_date
-                if item_date < current_day:
+                if since_date is None:
+                    since_date = item_date
+                if item_date < since_date:
                     stop = True
                     break
                 if href not in all_urls:
