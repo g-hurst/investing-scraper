@@ -2,6 +2,7 @@ import json
 import os
 import re
 import time
+import urllib.parse
 from datetime import date, datetime
 from pathlib import Path
 
@@ -68,86 +69,122 @@ class MotleyFool(BaseSource):
         print("[motley_fool] Authenticated and session saved.")
 
     def get_new_article_urls(self, since_date: date) -> list[str]:
-        pw("goto", _LISTING_URL)
-        time.sleep(2)
-
-        all_urls: list[str] = []
-        stop = False
-        max_show_more = 20
-
-        # JS: wait for the "Show More" button (signals full list render), then extract all
-        # premium article links that contain a YYYY/MM/DD date segment.
-        # Covers both /coverage/ and /earnings/call-transcripts/ URL shapes.
-        _extract_js = (
+        # Navigate to the listing page so the browser acquires auth tokens,
+        # then intercept the first FilteredArticleList request to capture them.
+        capture_js = (
             "async page => {\n"
-            "  try {\n"
-            "    await page.waitForFunction(\n"
-            "      () => [...document.querySelectorAll('button')]"
-            ".some(b => /show more/i.test(b.innerText)),\n"
-            "      { timeout: 15000 }\n"
-            "    );\n"
-            "  } catch(e) {}\n"
-            "  return await page.evaluate(() => {\n"
-            "    const seen = new Set();\n"
-            "    return [...document.querySelectorAll('a[href*=\"/premium/\"]')]\n"
-            "      .filter(a => !a.href.includes('#') && a.innerText.trim().length > 3)\n"
-            "      .map(a => {\n"
-            "        const m = a.href.match(/\\/([0-9]{4})\\/([0-9]{2})\\/([0-9]{2})\\//);\n"
-            "        return { href: a.href, date: m ? `${m[1]}-${m[2]}-${m[3]}` : '' };\n"
-            "      })\n"
-            "      .filter(x => x.date && !seen.has(x.href) && seen.add(x.href));\n"
-            "  });\n"
+            "  let captured = null;\n"
+            "  const handler = req => {\n"
+            "    if (req.url().includes('FilteredArticleList') && !captured)\n"
+            "      captured = { headers: req.headers(), url: req.url() };\n"
+            "  };\n"
+            "  page.on('request', handler);\n"
+            "  await page.goto(" + json.dumps(_LISTING_URL) + ");\n"
+            "  await page.waitForFunction(\n"
+            "    () => [...document.querySelectorAll('button')].some(b => /show more/i.test(b.innerText)),\n"
+            "    { timeout: 15000 }\n"
+            "  ).catch(() => {});\n"
+            "  page.off('request', handler);\n"
+            "  return JSON.stringify(captured || {});\n"
             "}"
         )
+        raw_captured = pw("run-code", capture_js)
+        try:
+            captured = json.loads(raw_captured.strip())
+            if isinstance(captured, str):
+                captured = json.loads(captured)
+        except (json.JSONDecodeError, TypeError):
+            captured = {}
 
-        for _ in range(max_show_more):
-            raw = pw("run-code", _extract_js)
+        api_headers = captured.get("headers", {})
+        if not api_headers:
+            raise RuntimeError("Could not capture API auth headers from page request")
 
+        # Extract the persisted query hash from the intercepted request URL
+        _sha256_hash = "8f705b5b30393d22fd4f16856d283a7da8f00bf2153d86fafeffb43c825d095e"
+        try:
+            captured_url = captured.get("url", "")
+            ext_param = urllib.parse.parse_qs(urllib.parse.urlparse(captured_url).query).get("extensions", [""])[0]
+            ext_json = json.loads(urllib.parse.unquote(ext_param))
+            _sha256_hash = ext_json["persistedQuery"]["sha256Hash"]
+        except Exception:
+            pass  # fall back to hardcoded hash
+
+        _API_EXT = json.dumps({
+            "clientLibrary": {"name": "@apollo/client", "version": "4.1.6"},
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": _sha256_hash,
+            },
+        })
+        _API_BASE_VARS = {
+            "tagsFilterType": "OR",
+            "videoInclusion": "EXCLUDE",
+            "includeImages": False,
+            "includeFreeContent": False,
+            "includeStaticPages": True,
+            "limit": 20,
+            "myStocks": False,
+            "orderBy": "",
+            "tags": [],
+            "tagCollectionSlugs": [],
+            "productIds": [],
+            "authorIds": [],
+        }
+
+        all_urls: list[str] = []
+        offset = 0
+
+        while True:
+            api_url = (
+                "https://api.fool.com/premium-graphql-proxy/graphql"
+                "?operationName=FilteredArticleList"
+                "&variables=" + urllib.parse.quote(json.dumps({**_API_BASE_VARS, "offset": offset}))
+                + "&extensions=" + urllib.parse.quote(_API_EXT)
+            )
+            fetch_js = (
+                "async page => {\n"
+                f"  const url = {json.dumps(api_url)};\n"
+                f"  const headers = {json.dumps(api_headers)};\n"
+                "  return await page.evaluate(async ({ url, headers }) => {\n"
+                "    const r = await fetch(url, { headers });\n"
+                "    return await r.text();\n"
+                "  }, { url, headers });\n"
+                "}"
+            )
+            raw = pw("run-code", fetch_js)
             try:
-                items = json.loads(raw.strip())
-                if isinstance(items, str):
-                    items = json.loads(items)
+                resp = json.loads(raw.strip())
+                if isinstance(resp, str):
+                    resp = json.loads(resp)
             except (json.JSONDecodeError, TypeError):
                 break
 
-            for item in items:
-                href = item.get("href", "")
-                item_date_str = item.get("date", "")
-                if not href or not item_date_str:
+            contents = resp.get("data", {}).get("contents", [])
+            if not contents:
+                break
+
+            stop = False
+            for item in contents:
+                path = item.get("path", "")
+                publish_at = item.get("publishAt", "")
+                if not path or not publish_at:
                     continue
                 try:
-                    item_date = date.fromisoformat(item_date_str)
+                    item_date = date.fromisoformat(publish_at[:10])
                 except ValueError:
                     continue
-                if since_date is None:
-                    since_date = item_date
                 if item_date < since_date:
                     stop = True
                     break
-                if href not in all_urls:
-                    all_urls.append(href)
+                url = "https://www.fool.com/premium" + path.rstrip("/")
+                if url not in all_urls:
+                    all_urls.append(url)
 
-            if stop:
+            if stop or len(contents) < _API_BASE_VARS["limit"]:
                 break
 
-            # Click "Show More" to load the next batch of articles
-            has_more = pw(
-                "run-code",
-                "async page => {\n"
-                "  const btn = page.getByRole('button', { name: /show more/i });\n"
-                "  try {\n"
-                "    await btn.waitFor({ timeout: 5000 });\n"
-                "    await btn.scrollIntoViewIfNeeded();\n"
-                "    await btn.click();\n"
-                "    await page.waitForTimeout(2000);\n"
-                "    return 'true';\n"
-                "  } catch(e) {\n"
-                "    return 'false';\n"
-                "  }\n"
-                "}",
-            )
-            if "true" not in has_more:
-                break
+            offset += _API_BASE_VARS["limit"]
 
         return all_urls
 
