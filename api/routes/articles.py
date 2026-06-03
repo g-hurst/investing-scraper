@@ -59,7 +59,7 @@ def list_articles(
     ticker: str | None = Query(None, description="Filter by stock ticker symbol, case-insensitive (e.g. 'NVDA')"),
     date_from: date | None = Query(None, description="Include only articles published on or after this date (YYYY-MM-DD)"),
     date_to: date | None = Query(None, description="Include only articles published on or before this date (YYYY-MM-DD)"),
-    limit: int = Query(20, ge=1, le=100, description="Number of results per page (1–100, default 20)"),
+    limit: int = Query(100, ge=1, le=500, description="Number of results per page (1–500, default 100)"),
     offset: int = Query(0, ge=0, description="Number of results to skip for pagination (default 0)"),
 ):
     """List scraped news articles with optional filters.
@@ -108,7 +108,7 @@ def search_articles(
     ticker: str | None = Query(None, description="Also filter by stock ticker symbol (case-insensitive)"),
     date_from: date | None = Query(None, description="Include only articles published on or after this date (YYYY-MM-DD)"),
     date_to: date | None = Query(None, description="Include only articles published on or before this date (YYYY-MM-DD)"),
-    limit: int = Query(20, ge=1, le=100, description="Number of results per page (1–100, default 20)"),
+    limit: int = Query(100, ge=1, le=500, description="Number of results per page (1–500, default 100)"),
     offset: int = Query(0, ge=0, description="Number of results to skip for pagination (default 0)"),
 ):
     """Search articles by keyword across title and content.
