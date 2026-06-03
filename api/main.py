@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastmcp import FastMCP
 
 from api.routes.articles import router as articles_router
@@ -26,4 +27,11 @@ app = FastAPI(
         *api.routes,
     ],
     lifespan=mcp_app.lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
 )
